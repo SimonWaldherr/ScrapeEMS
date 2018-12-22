@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
@@ -13,23 +14,25 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/simplereach/timeutils"
+	"simonwaldherr.de/go/gwv"
 )
 
 const (
-	path        = "/einsatznachbearbeitungberichtbycommonds/berichtliststandarddaten"
-	querystring = "&mDataProp_0=elrEinsatzNummer&mDataProp_1=formularBoolean1&mDataProp_2=einsatzDatum&mDataProp_3=berichtsart&mDataProp_4=string100n1&mDataProp_5=statusBearbeitung&mDataProp_6=statusVerrechnung&mDataProp_7=string100n3&mDataProp_8=resRechte_kurzzeichen&mDataProp_9=string100n2&mDataProp_10=string100n4&mDataProp_11=string100n5&mDataProp_12=string100n6&mDataProp_13=naechsterBearbeiter_loginname&sSearch=&bRegex=false&sSearch_0=&bRegex_0=false&bSearchable_0=true&sSearch_1=&bRegex_1=false&bSearchable_1=true&sSearch_2=&bRegex_2=false&bSearchable_2=true&sSearch_3=&bRegex_3=false&bSearchable_3=true&sSearch_4=&bRegex_4=false&bSearchable_4=true&sSearch_5=&bRegex_5=false&bSearchable_5=true&sSearch_6=&bRegex_6=false&bSearchable_6=true&sSearch_7=&bRegex_7=false&bSearchable_7=true&sSearch_8=&bRegex_8=false&bSearchable_8=true&sSearch_9=&bRegex_9=false&bSearchable_9=true&sSearch_10=&bRegex_10=false&bSearchable_10=true&sSearch_11=&bRegex_11=false&bSearchable_11=true&sSearch_12=&bRegex_12=false&bSearchable_12=true&sSearch_13=&bRegex_13=false&bSearchable_13=true&iSortingCols=1&iSortCol_0=2&sSortDir_0=desc&bSortable_0=true&bSortable_1=true&bSortable_2=true&bSortable_3=true&bSortable_4=true&bSortable_5=true&bSortable_6=true&bSortable_7=true&bSortable_8=true&bSortable_9=true&bSortable_10=true&bSortable_11=true&bSortable_12=true&bSortable_13=true"
+	path        = "einsatznachbearbeitungberichtbycommonds/berichtliststandarddaten"
+	querystring = "mDataProp_0=elrEinsatzNummer&mDataProp_1=formularBoolean1&mDataProp_2=einsatzDatum&mDataProp_3=berichtsart&mDataProp_4=string100n1&mDataProp_5=statusBearbeitung&mDataProp_6=statusVerrechnung&mDataProp_7=string100n3&mDataProp_8=resRechte_kurzzeichen&mDataProp_9=string100n2&mDataProp_10=string100n4&mDataProp_11=string100n5&mDataProp_12=string100n6&mDataProp_13=naechsterBearbeiter_loginname&sSearch=&bRegex=false&sSearch_0=&bRegex_0=false&bSearchable_0=true&sSearch_1=&bRegex_1=false&bSearchable_1=true&sSearch_2=&bRegex_2=false&bSearchable_2=true&sSearch_3=&bRegex_3=false&bSearchable_3=true&sSearch_4=&bRegex_4=false&bSearchable_4=true&sSearch_5=&bRegex_5=false&bSearchable_5=true&sSearch_6=&bRegex_6=false&bSearchable_6=true&sSearch_7=&bRegex_7=false&bSearchable_7=true&sSearch_8=&bRegex_8=false&bSearchable_8=true&sSearch_9=&bRegex_9=false&bSearchable_9=true&sSearch_10=&bRegex_10=false&bSearchable_10=true&sSearch_11=&bRegex_11=false&bSearchable_11=true&sSearch_12=&bRegex_12=false&bSearchable_12=true&sSearch_13=&bRegex_13=false&bSearchable_13=true&iSortingCols=1&iSortCol_0=2&sSortDir_0=desc&bSortable_0=true&bSortable_1=true&bSortable_2=true&bSortable_3=true&bSortable_4=true&bSortable_5=true&bSortable_6=true&bSortable_7=true&bSortable_8=true&bSortable_9=true&bSortable_10=true&bSortable_11=true&bSortable_12=true&bSortable_13=true"
 )
 
 var (
-	protocol   = "https://"
-	emsPort    = ":443"
+	protocol   = "https"
+	emsPort    = 443
+	proxyPort  = 8080
 	emsURL     = ""
 	kontoId    = ""
 	menueId    = ""
 	username   = ""
 	password   = ""
-	outputtype = ""
-	csvdel     = ";"
+	outputType = ""
+	csvDel     = ";"
 	count      = 10
 )
 
@@ -39,10 +42,6 @@ type Scraper struct {
 
 type AuthenticityToken struct {
 	Token string
-}
-
-type Project struct {
-	Name string
 }
 
 type EinsatzBerichte struct {
@@ -70,7 +69,7 @@ type EinsatzBerichte struct {
 }
 
 func (app *Scraper) getToken() AuthenticityToken {
-	loginURL := protocol + emsURL + emsPort + "/login"
+	loginURL := fmt.Sprintf("%v://%v:%d/login", protocol, emsURL, emsPort)
 	client := app.Client
 
 	response, err := client.Get(loginURL)
@@ -100,7 +99,7 @@ func (app *Scraper) login() (string, error) {
 
 	authenticityToken := app.getToken()
 
-	loginURL := protocol + emsURL + emsPort + "/login"
+	loginURL := fmt.Sprintf("%v://%v:%d/login", protocol, emsURL, emsPort)
 
 	data := url.Values{
 		"authenticityToken": {authenticityToken.Token},
@@ -132,7 +131,7 @@ func (app *Scraper) login() (string, error) {
 }
 
 func (app *Scraper) getOperations(target interface{}) error {
-	projectsURL := fmt.Sprintf("%v%v%v%v?konto=%v&menueId=%v&sEcho=1&iColumns=14&sColumns=&iDisplayStart=0&iDisplayLength=%d%v", protocol, emsURL, emsPort, path, kontoId, menueId, count, querystring)
+	projectsURL := fmt.Sprintf("%v://%v:%d/%v?konto=%v&menueId=%v&sEcho=1&iColumns=14&sColumns=&iDisplayStart=0&iDisplayLength=%d&%v", protocol, emsURL, emsPort, path, kontoId, menueId, count, querystring)
 
 	client := app.Client
 
@@ -147,19 +146,8 @@ func (app *Scraper) getOperations(target interface{}) error {
 	return json.NewDecoder(response.Body).Decode(target)
 }
 
-func main() {
+func getEMSStruct() (EinsatzBerichte, error) {
 	var err error
-	menueId = "3130"
-
-	flag.StringVar(&emsURL, "url", "", "IP/Domain of the ELDIS-Management-Suite")
-	flag.StringVar(&username, "user", "", "your EMS username")
-	flag.StringVar(&password, "pass", "", "your EMS password")
-	flag.StringVar(&outputtype, "output", "json", "data type/format of the output")
-	flag.StringVar(&csvdel, "del", ";", "separator when exporting as CSV")
-	flag.IntVar(&count, "count", 10, "number of entries to be queried")
-
-	flag.Parse()
-
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	jar, _ := cookiejar.New(nil)
@@ -169,25 +157,52 @@ func main() {
 	}
 
 	kontoId, err = app.login()
+	berichte := EinsatzBerichte{}
 
 	if err != nil {
 		log.Fatal("Error on login: ", err)
-		return
+		return berichte, err
 	}
 
-	berichte := EinsatzBerichte{}
 	err = app.getOperations(&berichte)
 
 	if err != nil {
 		log.Fatal("Error on extracting: ", err)
-		return
+		return berichte, err
 	}
 
-	switch outputtype {
+	return berichte, nil
+}
+
+func jsonHandler(rw http.ResponseWriter, req *http.Request) (string, int) {
+	berichte, _ := getEMSStruct()
+	jsonStr, _ := json.Marshal(berichte)
+	rw.Header().Set("Content-Type", "application/json; charset=utf-8")
+	rw.WriteHeader(http.StatusOK)
+	io.WriteString(rw, string(jsonStr))
+	return "", http.StatusOK
+}
+
+func main() {
+	menueId = "3130"
+
+	flag.StringVar(&emsURL, "url", "", "IP/Domain of the ELDIS-Management-Suite")
+	flag.StringVar(&username, "user", "", "your EMS username")
+	flag.StringVar(&password, "pass", "", "your EMS password")
+	flag.StringVar(&outputType, "output", "json", "data type/format of the output")
+	flag.IntVar(&proxyPort, "port", 8080, "http port when using as web server")
+	flag.StringVar(&csvDel, "del", ";", "separator when exporting as CSV")
+	flag.IntVar(&count, "count", 10, "number of entries to be queried")
+
+	flag.Parse()
+
+	switch outputType {
 	case "json":
+		berichte, _ := getEMSStruct()
 		jsonStr, _ := json.Marshal(berichte)
 		fmt.Println(string(jsonStr))
 	case "csv":
+		berichte, _ := getEMSStruct()
 		bomUtf8 := []byte{0xEF, 0xBB, 0xBF}
 		fmt.Print(string(bomUtf8[:]))
 		fmt.Println(strings.Join([]string{
@@ -200,7 +215,7 @@ func main() {
 			"PLZ",
 			"Ort",
 			"Strasse",
-		}, csvdel))
+		}, csvDel))
 
 		for row := range berichte.Einsatz {
 			einsatz := berichte.Einsatz[row]
@@ -214,9 +229,17 @@ func main() {
 				einsatz.PLZ,
 				einsatz.OrtLang,
 				einsatz.Strasse,
-			}, csvdel))
+			}, csvDel))
 		}
+	case "web":
+		HTTPD := gwv.NewWebServer(proxyPort, 60)
+		HTTPD.URLhandler(
+			gwv.URL("^/json/.*$", jsonHandler, gwv.MANUAL),
+		)
+		HTTPD.Start()
+		HTTPD.WG.Wait()
 	default:
+		berichte, _ := getEMSStruct()
 		fmt.Printf("%#v\n", berichte)
 	}
 }
